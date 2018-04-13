@@ -478,7 +478,8 @@ int CmdHF14ASim(const char *Cmd)
 		PrintAndLog("           2 = MIFARE Ultralight");
 		PrintAndLog("           3 = MIFARE Desfire");
 		PrintAndLog("           4 = ISO/IEC 14443-4");
-		PrintAndLog("           5 = MIFARE Tnp3xxx");		
+		PrintAndLog("           5 = MIFARE Tnp3xxx");
+		PrintAndLog("           6 = NTAG215");
 		PrintAndLog("");
 		return 1;
 	}

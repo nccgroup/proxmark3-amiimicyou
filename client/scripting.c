@@ -11,6 +11,7 @@
 #include "scripting.h"
 
 #include <stdlib.h>
+#include <string.h>
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
@@ -26,6 +27,7 @@
 #include "../common/sha1.h"
 #include "aes.h"
 #include "cmdcrc.h"
+#include "data.h"
 /**
  * The following params expected:
  *  UsbCommand c
@@ -447,6 +449,23 @@ static int l_reveng_RunModel(lua_State *L){
 	return 1;
 }
 
+static int l_getfrombigbuf(lua_State *L) {
+  unsigned int start_index = luaL_checkunsigned(L, 1);
+  unsigned int bytes = luaL_checkunsigned(L, 2);
+
+  char *sample = malloc(bytes);
+  if (sample == NULL) return 0;
+  memset(sample, 0, bytes);
+
+  GetFromBigBuf((uint8_t*) sample, bytes, start_index);
+  WaitForResponse(CMD_ACK, NULL);
+
+  lua_pushlstring(L, sample, bytes);
+  free(sample);
+
+  return 1;
+}
+
 /**
  * @brief Sets the lua path to include "./lualibs/?.lua", in order for a script to be
  * able to do "require('foobar')" if foobar.lua is within lualibs folder.
@@ -495,6 +514,7 @@ int set_pm3_libraries(lua_State *L)
 		{"sha1",                        l_sha1},
 		{"reveng_models",               l_reveng_models},
 		{"reveng_runmodel",             l_reveng_RunModel},
+                {"getfrombigbuf",               l_getfrombigbuf},
 		{NULL, NULL}
 	};
 

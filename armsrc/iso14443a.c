@@ -932,7 +932,13 @@ bool prepare_tag_modulation(tag_response_info_t* response_info, size_t max_buffe
 // Coded responses need one byte per bit to transfer (data, parity, start, stop, correction) 
 // 28 * 8 data bits, 28 * 1 parity bits, 7 start bits, 7 stop bits, 7 correction bits
 // -> need 273 bytes buffer
-#define ALLOCATED_TAG_MODULATION_BUFFER_SIZE 273
+// === NTAG21x Additions ===
+// GET_VERSION: 10 more data bytes in one new response
+// PACK: 4 more data bytes in one new response
+// READ_SIG: 34 more bytes in one new response
+#define TAG_RESPONSE_COUNT 10
+#define PREP_DATA_BYTES 76
+#define ALLOCATED_TAG_MODULATION_BUFFER_SIZE (PREP_DATA_BYTES * 9) + (TAG_RESPONSE_COUNT * 3)
 
 bool prepare_allocated_tag_modulation(tag_response_info_t* response_info) {
   // Retrieve and store the current buffer index
@@ -992,7 +998,12 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 			response1[0] = 0x01;
 			response1[1] = 0x0f;
 			sak = 0x01;
-		} break;		
+		} break;
+		case 6: { // NTAG 215
+			response1[0] = 0x04;
+			response1[1] = 0x00;
+			sak = 0x00;
+		} break;
 		default: {
 			Dbprintf("Error: unkown tagtype (%d)",tagType);
 			return;
@@ -1042,8 +1053,28 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 	// TC(1) = 0x02: CID supported, NAD not supported
 	ComputeCrc14443(CRC_14443_A, response6, 4, &response6[4], &response6[5]);
 
-	#define TAG_RESPONSE_COUNT 7
-	tag_response_info_t responses[TAG_RESPONSE_COUNT] = {
+	// GET_VERSION response for NTAG215
+	#define NTAG_215_VERSION { 0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x11, 0x03, 0x00, 0x00 }
+	uint8_t response7[] = NTAG_215_VERSION;
+	AppendCrc14443a(response7, 8);
+
+	// PACK - NTAG21x
+	uint8_t response8[] = { 0x80, 0x80, 0x00, 0x00 };
+	AppendCrc14443a(response8, 2);
+
+	// READ_SIG response - NTAG21x
+	uint8_t response9[34] =   {
+		// Known signature for Amiibo w/ ID in amiibo.lua (REPLACE ME!)
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00
+	};
+	AppendCrc14443a(response9, 32);
+
+	// 38 data bytes
+	tag_response_info_t responses[] = {
 		{ .response = response1,  .response_n = sizeof(response1)  },  // Answer to request - respond with card type
 		{ .response = response2,  .response_n = sizeof(response2)  },  // Anticollision cascade1 - respond with uid
 		{ .response = response2a, .response_n = sizeof(response2a) },  // Anticollision cascade2 - respond with 2nd half of uid if asked
@@ -1051,6 +1082,9 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 		{ .response = response3a, .response_n = sizeof(response3a) },  // Acknowledge select - cascade 2
 		{ .response = response5,  .response_n = sizeof(response5)  },  // Authentication answer (random nonce)
 		{ .response = response6,  .response_n = sizeof(response6)  },  // dummy ATS (pseudo-ATR), answer to RATS
+		{ .response = response7,  .response_n = sizeof(response7)  },  // GET_VERSION - NTAG215 response
+		{ .response = response8,  .response_n = sizeof(response8)  },  // PACK - NTAG21x response to PWD_AUTH
+		{ .response = response9,  .response_n = sizeof(response9)  },  // READ_SIG response - NTAG21x
 	};
 
 	// Allocate 512 bytes for the dynamic modulation, created when the reader queries for it
@@ -1065,11 +1099,16 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 		.modulation = dynamic_modulation_buffer,
 		.modulation_n = 0
 	};
-  
+
 	// We need to listen to the high-frequency, peak-detected path.
 	iso14443a_setup(FPGA_HF_ISO14443A_TAGSIM_LISTEN);
 
 	BigBuf_free_keep_EM();
+
+	// If using NTAG215, use data from bigbuf eml memory
+	if (tagType == 6) {
+	  data = BigBuf_get_EM_addr();
+	}
 
 	// allocate buffers:
 	uint8_t *receivedCmd = BigBuf_malloc(MAX_FRAME_SIZE);
@@ -1100,6 +1139,12 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 	cmdsRecvd = 0;
 	tag_response_info_t* p_response;
 
+	// Buffer for doing CRC on data before sending back
+	#define DATA_CRC_SZ 540
+	byte_t *data_crc = BigBuf_malloc(DATA_CRC_SZ + 2);
+
+	#define NTAG_215_SZ 540
+
 	LED_A_ON();
 	for(;;) {
 		// Clean receive command buffer
@@ -1109,7 +1154,7 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 		}
 
 		p_response = NULL;
-		
+
 		// Okay, look at the command now.
 		lastorder = order;
 		if(receivedCmd[0] == 0x26) { // Received a REQUEST
@@ -1118,23 +1163,60 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 			p_response = &responses[0]; order = 6;
 		} else if(receivedCmd[1] == 0x20 && receivedCmd[0] == 0x93) {	// Received request for UID (cascade 1)
 			p_response = &responses[1]; order = 2;
-		} else if(receivedCmd[1] == 0x20 && receivedCmd[0] == 0x95) { 	// Received request for UID (cascade 2)
+		} else if(receivedCmd[1] == 0x20 && receivedCmd[0] == 0x95) { // Received request for UID (cascade 2)
 			p_response = &responses[2]; order = 20;
 		} else if(receivedCmd[1] == 0x70 && receivedCmd[0] == 0x93) {	// Received a SELECT (cascade 1)
 			p_response = &responses[3]; order = 3;
 		} else if(receivedCmd[1] == 0x70 && receivedCmd[0] == 0x95) {	// Received a SELECT (cascade 2)
 			p_response = &responses[4]; order = 30;
 		} else if(receivedCmd[0] == 0x30) {	// Received a (plain) READ
-			EmSendCmdEx(data+(4*receivedCmd[1]),16,false);
+			uint8_t page = receivedCmd[1];
+
+			if (tagType == 6) {
+				// Validate page number
+				if (page > (NTAG_215_SZ/4) - 1) {
+					Dbprintf("Bad READ page number from reader: %u\n", page);
+				} else {
+					// Compute CRC for read data
+					memcpy(data_crc, data+(4*receivedCmd[1]), 16);
+					AppendCrc14443a(data_crc, 16);
+					EmSendCmdEx(data_crc, 18, false);
+				}
+			} else {
+				EmSendCmdEx(data+(4*receivedCmd[1]),16,false);
+			}
 			// Dbprintf("Read request from reader: %x %x",receivedCmd[0],receivedCmd[1]);
 			// We already responded, do not send anything with the EmSendCmd14443aRaw() that is called below
 			p_response = NULL;
+		} else if(tagType == 6 && receivedCmd[0] == 0x3A) { // FAST_READ (read range)
+			uint8_t start_page = receivedCmd[1];
+			uint8_t end_page = receivedCmd[2];
+
+		  size_t response_length = 4 * (end_page - start_page + 1);
+
+		  if (end_page < start_page || end_page > (NTAG_215_SZ/4) - 1) {
+				Dbprintf("Bad FAST_READ range from reader: %u - %u", start_page, end_page);
+		  } else if (response_length > DATA_CRC_SZ) {
+				Dbprintf("Response length %u too large: buffer for response is %u bytes\n",
+								 response_length, DATA_CRC_SZ);
+			} else {
+				memcpy(data_crc, data + (4*start_page), response_length);
+				AppendCrc14443a(data_crc, response_length);
+				EmSendCmdEx(data_crc, response_length + 2, false);
+		  }
+
+		  // Already responded with raw send
+		  p_response = NULL;
 		} else if(receivedCmd[0] == 0x50) {	// Received a HALT
 
 			if (tracing) {
 				LogTrace(receivedCmd, Uart.len, Uart.startTime*16 - DELAY_AIR2ARM_AS_TAG, Uart.endTime*16 - DELAY_AIR2ARM_AS_TAG, Uart.parity, true);
 			}
 			p_response = NULL;
+		} else if(tagType == 6 && receivedCmd[0] == 0x60) { // NTAG21x GET_VERSION
+			p_response = &responses[7]; order = 40;
+		} else if(tagType == 6 && receivedCmd[0] == 0x1B) { // NTAG21x PWD_AUTH
+			p_response = &responses[8];
 		} else if(receivedCmd[0] == 0x60 || receivedCmd[0] == 0x61) {	// Received an authentication request
 			p_response = &responses[5]; order = 7;
 		} else if(receivedCmd[0] == 0xE0) {	// Received a RATS request
@@ -1166,8 +1248,31 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 
 				case 0x1A:
 				case 0x1B: { // Chaining command
-				  dynamic_response_info.response[0] = 0xaa | ((receivedCmd[0]) & 1);
-				  dynamic_response_info.response_n = 2;
+					dynamic_response_info.response[0] = 0xaa | ((receivedCmd[0]) & 1);
+					dynamic_response_info.response_n = 2;
+				} break;
+
+			  case 0x3C: { // NTAG21x READ_SIG
+					dynamic_response_info.response_n = 0;
+					p_response = &responses[9];
+				} break;
+
+				case 0xA2: { // NTAG21x WRITE
+					if (tagType != 6) break;
+					dynamic_response_info.response_n = 0;
+					uint8_t write_page = receivedCmd[1];
+
+					// verify write page and write to card memory
+					if (write_page < 2 || (4 * write_page) <= (CARD_MEMORY_SIZE - 4)) {
+						memcpy(data + (4 * write_page), receivedCmd + 2, 4);
+
+						// Send write ACK
+						EmSend4bit(CARD_ACK);
+					} else {
+						Dbprintf("invalid write page %u", write_page);
+						EmSend4bit(CARD_NACK_NA);
+						p_response = NULL;
+					}
 				} break;
 
 				case 0xaa:
@@ -1175,7 +1280,7 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 				  dynamic_response_info.response[0] = receivedCmd[0] ^ 0x11;
 				  dynamic_response_info.response_n = 2;
 				} break;
-				  
+
 				case 0xBA: { //
 				  memcpy(dynamic_response_info.response,"\xAB\x00",2);
 				  dynamic_response_info.response_n = 2;
@@ -1201,7 +1306,7 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
       
 			if (dynamic_response_info.response_n > 0) {
 				// Copy the CID from the reader query
-				dynamic_response_info.response[1] = receivedCmd[1];
+				//dynamic_response_info.response[1] = receivedCmd[1];
 
 				// Add CRC bytes, always used in ISO 14443A-4 compliant cards
 				AppendCrc14443a(dynamic_response_info.response,dynamic_response_info.response_n);
@@ -1224,12 +1329,15 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 		// Count number of other messages after a halt
 		if(order != 6 && lastorder == 5) { happened2++; }
 
+		/*
 		if(cmdsRecvd > 999) {
 			DbpString("1000 commands later...");
 			break;
 		}
+		*/
 		cmdsRecvd++;
 
+		// Send response
 		if (p_response != NULL) {
 			EmSendCmd14443aRaw(p_response->modulation, p_response->modulation_n, receivedCmd[0] == 0x52);
 			// do the tracing for the previous reader request and this tag answer:
@@ -1249,8 +1357,14 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 		}
 		
 		if (!tracing) {
-			Dbprintf("Trace Full. Simulation stopped.");
-			break;
+			if (tagType == 6) {
+				Dbprintf("Trace full; clearing.");
+				clear_trace();
+				set_tracing(true);
+			} else {
+				Dbprintf("Trace Full. Simulation stopped.");
+				break;
+			}
 		}
 	}
 

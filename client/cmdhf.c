@@ -98,17 +98,14 @@ void annotateIso14443a(char *exp, size_t size, uint8_t* cmd, uint8_t cmdsize)
 			snprintf(exp,size,"PWD-AUTH");
 		break;
 	case MIFARE_ULEV1_FASTREAD:{
-		if ( cmdsize >=3 && cmd[2] <= 0xE6)
+		if ( cmdsize >=3 )
 			snprintf(exp,size,"READ RANGE (%d-%d)",cmd[1],cmd[2]); 
 		else
 			snprintf(exp,size,"?");
 		break;
 	}
 	case MIFARE_ULC_WRITE:{
-		if ( cmd[1] < 0x21 )
-			snprintf(exp,size,"WRITEBLOCK(%d)",cmd[1]); 
-		else
-			snprintf(exp,size,"?");
+		snprintf(exp,size,"WRITEBLOCK(%u)",cmd[1]); 
 		break;
 	}
 	case MIFARE_ULEV1_READ_CNT:{
