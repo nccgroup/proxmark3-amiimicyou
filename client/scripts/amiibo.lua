@@ -98,7 +98,7 @@ end
 local function dump_sim(argv)
    local keypath = argv[2]
    if keypath == nil then
-      keypath = 'all_in_one_keys.bin'
+      keypath = 'amiitool_keys.bin'
    end
    luamiibo.load_keys(keypath)
 
@@ -152,7 +152,7 @@ local function main(args)
 
    local keypath = argv[2]
    if keypath == nil then
-      keypath = 'all_in_one_keys.bin'
+      keypath = 'amiitool_keys.bin'
    end
 
    if luamiibo.load_keys(keypath) then

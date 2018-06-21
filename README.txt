@@ -1,3 +1,26 @@
+## Amiibo simulator instructions
+
+A copy of the amiitool Lua wrapper is included at `client/libluamiibo.so`, but if you want
+to build it yourself, follow these instructions:
+
+1. Get the `lua-lib` branch of amiitool at https://github.com/jamchamb/amiitool/tree/lua-lib.
+1. In CMakeLists.txt set `PROXMARK_LIBLUA` to the path to your `proxmark3/liblua` directory.
+1. In the amiitool directory run `./build.sh` and copy `build/libluamiibo.so` to the `proxmark3/client` directory.
+
+To build the main proxmark code, go to the `proxmark3` directory and run `make`.
+Then flash the proxmark3 by:
+
+1. Unplugging the proxmark if it is plugged in
+1. Plug the proxmark in while holding down its button
+1. While continuing to hold the button, run `make flash-all`
+
+Go to the `client` directory and run `./proxmark3 /dev/ttyACM0` (or other device path)
+and `script run amiibo help` to list available commands.
+
+Commands that perform cryptographic operations, such as `read`, require a keyfile for
+amiitool at `amiitool_keys.bin` in the `proxmark3/client` directory.
+
+
 NOTICE:
 (2014-03-26)
 This is now the official Proxmark repository!
