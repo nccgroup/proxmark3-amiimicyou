@@ -1003,13 +1003,15 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 			response1[0] = 0x04;
 			response1[1] = 0x00;
 			sak = 0x00;
+			// If using NTAG215, use data from bigbuf eml memory
+			data = BigBuf_get_EM_addr();
 		} break;
 		default: {
 			Dbprintf("Error: unkown tagtype (%d)",tagType);
 			return;
 		} break;
 	}
-	
+
 	// The second response contains the (mandatory) first 24 bits of the UID
 	uint8_t response2[5] = {0x00};
 
@@ -1063,14 +1065,9 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 	AppendCrc14443a(response8, 2);
 
 	// READ_SIG response - NTAG21x
-	uint8_t response9[34] =   {
-		// Known signature for Amiibo w/ ID in amiibo.lua (REPLACE ME!)
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00
-	};
+	uint8_t response9[34] = {0x00};
+	// Copy signature from card memory
+	memcpy(response9, data+540, 32);
 	AppendCrc14443a(response9, 32);
 
 	// 38 data bytes
@@ -1104,11 +1101,6 @@ void SimulateIso14443aTag(int tagType, int uid_1st, int uid_2nd, byte_t* data)
 	iso14443a_setup(FPGA_HF_ISO14443A_TAGSIM_LISTEN);
 
 	BigBuf_free_keep_EM();
-
-	// If using NTAG215, use data from bigbuf eml memory
-	if (tagType == 6) {
-	  data = BigBuf_get_EM_addr();
-	}
 
 	// allocate buffers:
 	uint8_t *receivedCmd = BigBuf_malloc(MAX_FRAME_SIZE);

@@ -39,17 +39,40 @@ end
 
 local function emulate_amiibo (amiibo_data)
    -- Make UID args
-   -- Use known ID for known ECDSA signature - REPLACE ME!
+   -- Use known ID/sig for known ECDSA signature - REPLACE ME!
    local uid_bytes = '\x00\x04\xFF\xFF\xFF\xFF\xFF\xFF'
-   local count, uid_first, uid_second = bin.unpack('>I>I', uid_bytes)
+   local ecc_sig = ''
+      .. '\x00\x00\x00\x00\x00\x00\x00\x00'
+      .. '\x00\x00\x00\x00\x00\x00\x00\x00'
+      .. '\x00\x00\x00\x00\x00\x00\x00\x00'
+      .. '\x00\x00\x00\x00\x00\x00\x00\x00'
 
-   print(string.format('Simulating with UID: 0x%04x 0x%04x', uid_first, uid_second))
+   if amiibo_data:len() == 520 then
+      -- Add common ending bytes
+      print('Added missing ending bytes')
+      amiibo_data = amiibo_data
+         .. '\x01\x00\x0F\xBD\x00\x00\x00\x04'
+         .. '\x5F\x00\x00\x00\x00\x00\x00\x00'
+         .. '\x00\x00\x00\x00'
+   end
 
-   -- Add common ending bytes
-   amiibo_data = amiibo_data
-      .. '\x01\x00\x0F\xBD\x00\x00\x00\x04'
-      .. '\x5F\x00\x00\x00\x00\x00\x00\x00'
-      .. '\x00\x00\x00\x00'
+   if amiibo_data:len() == 572 then
+      -- Get ECC signature and use original serial
+      uid_bytes = '\x00' .. amiibo_data:sub(1,3) .. amiibo_data:sub(5,8)
+      ecc_sig = amiibo_data:sub(541, 572)
+      print('Amiibo image contains ECC signature', hexlify(ecc_sig))
+      --amiibo_data = amiibo_data:sub(1,540)
+   elseif amiibo_data:len() == 540 then
+      if uid_bytes ~= '\x00\x04\xFF\xFF\xFF\xFF\xFF\xFF' then
+         print('Using known ECC sig pair')
+      else
+         print('No known ECC/sig pair; using null signature')
+         uid_bytes = '\x00' .. amiibo_data:sub(1,3) .. amiibo_data:sub(5,8)
+      end
+      amiibo_data = amiibo_data .. ecc_sig
+   else
+      print('Unusual Amiibo image size', amiibo_data:len())
+   end
 
    -- Send amiibo data to emulator memory. If the Amiibo was just scanned, this
    -- is already set!
@@ -57,6 +80,10 @@ local function emulate_amiibo (amiibo_data)
       print('Failed to set emulator card memory')
       return
    end
+
+   -- Get UID parts
+   local count, uid_first, uid_second = bin.unpack('>I>I', uid_bytes)
+   print(string.format('Simulating with UID: 0x%04x 0x%04x', uid_first, uid_second))
 
    -- Begin simulating NTAG215
    local simCmd = Command:new{cmd = cmds.CMD_SIMULATE_TAG_ISO_14443a,
