@@ -20,6 +20,7 @@ and `script run amiibo help` to list available commands.
 Commands that perform cryptographic operations, such as `read`, require a keyfile for
 amiitool at `amiitool_keys.bin` in the `proxmark3/client` directory.
 
+## Original README
 
 NOTICE:
 (2014-03-26)
