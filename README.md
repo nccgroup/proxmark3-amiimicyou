@@ -20,7 +20,11 @@ and `script run amiibo help` to list available commands.
 Commands that perform cryptographic operations, such as `read`, require a keyfile for
 amiitool at `amiitool_keys.bin` in the `proxmark3/client` directory.
 
-## Original README
+*NOTE*: For Switch system version 5.0.0 or above you need to provide the correct ECC signature for the tag.
+To do this add the 32 byte signature to the end of the tag dump file. The total file size should be 572
+(540 bytes tag dump, 32 bytes signature).
+
+## Original proxmark3 README
 
 NOTICE:
 (2014-03-26)
